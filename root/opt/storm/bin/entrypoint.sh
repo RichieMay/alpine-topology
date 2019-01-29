@@ -1,6 +1,7 @@
 #!/bin/sh
 ZK_SERVICE=${ZK_SERVICE:-"zookeeper/zk"}
 KAFKA_SERVICE=${KAFKA_SERVICE:-"kafka/broker"}
+ACTIVEMQ_SERVICE=${ACTIVEMQ_SERVICE:-"activemq/pusher"}
 STORM_DATA_DIR=${STORM_DATA_DIR:-${SERVICE_HOME}"/data"}
 STORM_NIMBUS_SERVICE=${STORM_NIMBUS_SERVICE:-"storm/nimbus"}
 
@@ -57,6 +58,19 @@ gen_kafka_servers()
     echo "$kafkas"
 }
 
+gen_activemq_url()
+{
+    activemq_port=50001
+    for activemq in $*; do
+        if [ -z $activemqs ]; then
+            activemqs="tcp://$activemq:$activemq_port"
+        else
+            activemqs=$activemqs",tcp://$activemq:$activemq_port"
+        fi
+    done
+    echo "failover:($activemqs)"
+}
+
 gen_storm_conf() 
 {
 cat << EOF > ${SERVICE_CONF}
@@ -87,16 +101,17 @@ gen_storm_conf "$zk_servers" "$nimbus_servers"
 kafka_servers=$(get_service_addr $(echo ${KAFKA_SERVICE//'/'/' '}))
 bootstrap_servers=$(gen_kafka_servers $kafka_servers)
 
+activemq_servers=$(get_service_addr $(echo ${ACTIVEMQ_SERVICE//'/'/' '}))
+activemq_url=$(gen_activemq_url $activemq_servers)
+
 case $1 in
     pusher)
-        nohup bin/storm jar topology/iot-data-storm-pusher-1.0.0.jar com.sefon.ApplicationLoader --bootstrap-servers=$bootstrap_servers >/dev/null 2>&1 &
+        bin/storm jar topology/iot-data-storm-pusher-1.0.0.jar com.sefon.ApplicationLoader --bootstrap-servers=$bootstrap_servers --broker-url=$activemq_url
     ;;
     controller)
-        nohup bin/storm jar topology/iot-data-storm-controller-1.0.0.jar com.sefon.ApplicationLoader --bootstrap-servers=$bootstrap_servers >/dev/null 2>&1 &
+        bin/storm jar topology/iot-data-storm-controller-1.0.0.jar com.sefon.ApplicationLoader --bootstrap-servers=$bootstrap_servers
     ;;
     *)
         echo "usage: [pusher|controller]"
     ;;
 esac
-
-wait
